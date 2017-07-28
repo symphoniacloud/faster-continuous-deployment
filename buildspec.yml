@@ -1,0 +1,16 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - mvn -T 1C package
+  post_build:
+    commands:
+      - aws cloudformation package --template-file sam.yml
+                                   --s3-bucket ${CFN_PACKAGE_S3_BUCKET}
+                                   --output-template-file packaged-sam.yml
+
+artifacts:
+  type: zip
+  files:
+    - packaged-sam.yml

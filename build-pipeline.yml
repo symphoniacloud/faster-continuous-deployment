@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Serverless Weather Application Build Pipeline
+
+Parameters:
+  GitHubToken:
+    Type: String
+  GitHubUser:
+    Type: String
+    Default: symphoniacloud
+  GitHubRepository:
+    Type: String
+    Default: faster-continous-deployment
+  GitHubBranch:
+    Type: String
+    Default: master
+  ApplicationStackName:
+    Type: String
+    Default: serverless-app
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+Resources:
+
+  CodeBuildImageRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowPull
+            Effect: Allow
+            Principal:
+              Service: "codebuild.amazonaws.com"
+            Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+              - "ecr:BatchCheckLayerAvailability"
+
+  CodeBuildProject:
+      Type: AWS::CodeBuild::Project
+      DependsOn: CodeBuildRole
+      Properties:
+        Artifacts:
+          Type: CODEPIPELINE
+        Environment:
+          ComputeType: BUILD_GENERAL1_SMALL
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${CodeBuildImageRepository}:${AWS::StackName}"
+          Type: LINUX_CONTAINER
+          EnvironmentVariables:
+          - Name: CFN_PACKAGE_S3_BUCKET
+            Value: !Ref CfnBucket
+        ServiceRole: !Ref CodeBuildRole
+        Source:
+          Type: CODEPIPELINE
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      RestartExecutionOnUpdate: true
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: Source
+          InputArtifacts: []
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: '1'
+            Provider: GitHub
+          OutputArtifacts:
+          - Name: MyApp
+          Configuration:
+            Owner: !Ref GitHubUser
+            Repo: !Ref GitHubRepository
+            Branch: !Ref GitHubBranch
+            OAuthToken: !Ref GitHubToken
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - Name: Build
+          ActionTypeId:
+              Category: Build
+              Owner: AWS
+              Version: 1
+              Provider: CodeBuild
+          OutputArtifacts:
+            - Name: MyAppBuild
+          InputArtifacts:
+            - Name: MyApp
+          Configuration:
+              ProjectName: !Ref CodeBuildProject
+          RunOrder: 1
+      - Name: Deploy
+        Actions:
+        - Name: CreateChangeSet
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: '1'
+          InputArtifacts:
+            - Name: MyAppBuild
+          Configuration:
+            ActionMode: CHANGE_SET_REPLACE
+            Capabilities: CAPABILITY_IAM
+            RoleArn: !GetAtt CloudformationRole.Arn
+            StackName: !Ref ApplicationStackName
+            ChangeSetName: changeset
+            TemplatePath: !Sub "MyAppBuild::packaged-sam.yml" # Must match buildspec.yml value
+          RunOrder: 1
+        - Name: ExecuteChangeSet
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: '1'
+          Configuration:
+            ActionMode: CHANGE_SET_EXECUTE
+            Capabilities: CAPABILITY_IAM
+            ChangeSetName: changeset
+            RoleArn: !GetAtt CloudformationRole.Arn
+            StackName: !Ref ApplicationStackName
+          RunOrder: 2
+
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+  CfnBucket:
+    Type: AWS::S3::Bucket
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+  CloudformationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: cloudformation.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+Outputs:
+  CodeBuildImage:
+    Description: Docker image (from ECR) used by CodeBuild
+    Export:
+      Name: ServerlessWeatherCodeBuildImage
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${CodeBuildImageRepository}:${AWS::StackName}"

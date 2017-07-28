@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild Image Pipeline
+
+Parameters:
+  GitHubToken:
+    Type: String
+  GitHubUser:
+    Type: String
+    Default: symphoniacloud
+  GitHubRepository:
+    Type: String
+    Default: faster-continous-deployment
+  GitHubBranch:
+    Type: String
+    Default: master
+  ApplicationStackName:
+    Type: String
+    Default: serverless-app
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+Resources:
+
+  ImageRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowPull
+            Effect: Allow
+            Action:
+              - "ecr:GetAuthorizationToken",
+              - "ecr:BatchCheckLayerAvailability",
+              - "ecr:GetDownloadUrlForLayer",
+              - "ecr:GetRepositoryPolicy",
+              - "ecr:DescribeRepositories",
+              - "ecr:ListImages",
+              - "ecr:DescribeImages",
+              - "ecr:BatchGetImage",
+              - "ecr:InitiateLayerUpload",
+              - "ecr:UploadLayerPart",
+              - "ecr:CompleteLayerUpload",
+              - "ecr:PutImage"
+            Principal:
+              Service: "codebuild.amazonaws.com"
+
+  ImageCodeBuildProject:
+      Type: AWS::CodeBuild::Project
+      DependsOn: CodeBuildRole
+      Properties:
+        Artifacts:
+          Type: NO_ARTIFACTS
+        Environment:
+          ComputeType: BUILD_GENERAL1_SMALL
+          Image: aws/codebuild/docker:1.12.1
+          Type: LINUX_CONTAINER
+          #PrivilegedMode: true # I don't think this is necessary, since we're using an Image provided by AWS
+          EnvironmentVariables:
+          - Name: ECR_IMAGE_TAG
+            Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageRepository}:${ImageTag}"
+        ServiceRole: !Ref CodeBuildRole
+        TimeoutInMinutes: 10
+        Source:
+          Type: GITHUB
+          Location: !Sub "https://github.com/symphoniacloud/${GitHubRepository}"
+          BuildSpec: image-buildspec.yml
+          Auth:
+            Type: OAUTH
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+Outputs:
+  CodeBuildImage:
+    Description: Docker image (from ECR) used by CodeBuild
+    Export:
+      Name: ServerlessWeatherCodeBuildImage
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageRepository}:${ImageTag}"

@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Weather Application (Phase 6)
+
+Resources:
+
+  PostLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: io.symphonia.PostLambda::handler
+      Runtime: java8
+      MemorySize: 512
+      Timeout: 10
+      CodeUri: post-lambda/target/lambda.jar
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:PutItem
+          Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}'
+      Environment:
+        Variables:
+          TABLE: !Ref Table
+      Events:
+        ApiEvents:
+          Type: Api
+          Properties:
+            Path: /
+            Method: POST
+
+  GetLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: io.symphonia.GetLambda::handler
+      Runtime: java8
+      MemorySize: 512
+      Timeout: 10
+      CodeUri: get-lambda/target/lambda.jar
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:GetItem
+          Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}'
+      Environment:
+        Variables:
+          TABLE: !Ref Table
+      Events:
+        ApiEvents:
+          Type: Api
+          Properties:
+            Path: /
+            Method: GET
+
+  Table:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: primaryKey
+        Type: String
+
+Outputs:
+  ApiUrl:
+    Description: URL of your API endpoint
+    Export:
+      Name: ApiUrl
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref ServerlessRestApi
+        - '.execute-api.'
+        - !Ref 'AWS::Region'
+        - '.amazonaws.com/prod'
