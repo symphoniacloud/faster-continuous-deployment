@@ -6,7 +6,7 @@ phases:
       - mvn -T 1C package
   post_build:
     commands:
-      - aws cloudformation package --template-file sam.yml
+      - aws cloudformation package --template-file infrastructure/sam.yml
                                    --s3-bucket ${CFN_PACKAGE_S3_BUCKET}
                                    --output-template-file packaged-sam.yml
 
