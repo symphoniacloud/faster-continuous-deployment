@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Image Pipeline
+
+Parameters:
+  GitHubToken:
+    Type: String
+  GitHubUser:
+    Type: String
+  GitHubRepository:
+    Type: String
+  GitHubBranch:
+    Type: String
+    Default: master
+  ApplicationStackName:
+    Type: String
+    Default: serverless-app
+    AllowedPattern: "[A-Za-z0-9-]+"
+
+Resources:
+
+  ImageRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowPull
+            Effect: Allow
+            Action:
+              - "ecr:GetAuthorizationToken"
+              - "ecr:BatchCheckLayerAvailability"
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:GetRepositoryPolicy"
+              - "ecr:DescribeRepositories"
+              - "ecr:ListImages"
+              - "ecr:DescribeImages"
+              - "ecr:BatchGetImage"
+              - "ecr:InitiateLayerUpload"
+              - "ecr:UploadLayerPart"
+              - "ecr:CompleteLayerUpload"
+              - "ecr:PutImage"
+            Principal:
+              Service: "codebuild.amazonaws.com"
+
+  CodeBuildProject:
+      Type: AWS::CodeBuild::Project
+      DependsOn: CodeBuildRole
+      Properties:
+        Artifacts:
+          Type: CODEPIPELINE
+        Environment:
+          ComputeType: BUILD_GENERAL1_SMALL
+          Image: aws/codebuild/docker:1.12.1
+          Type: LINUX_CONTAINER
+          EnvironmentVariables:
+          - Name: ECR_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: ECR_IMAGE_TAG
+            Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageRepository}:${ApplicationStackName}"
+        ServiceRole: !Ref CodeBuildRole
+        TimeoutInMinutes: 10
+        Source:
+          Type: CODEPIPELINE
+          BuildSpec: infrastructure/image-buildspec.yml
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      RestartExecutionOnUpdate: true
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: Source
+          InputArtifacts: []
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: '1'
+            Provider: GitHub
+          OutputArtifacts:
+          - Name: MyApp
+          Configuration:
+            Owner: !Ref GitHubUser
+            Repo: !Ref GitHubRepository
+            Branch: !Ref GitHubBranch
+            OAuthToken: !Ref GitHubToken
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - Name: Build
+          ActionTypeId:
+              Category: Build
+              Owner: AWS
+              Version: 1
+              Provider: CodeBuild
+          OutputArtifacts:
+            - Name: MyAppBuild
+          InputArtifacts:
+            - Name: MyApp
+          Configuration:
+              ProjectName: !Ref CodeBuildProject
+          RunOrder: 1
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess #TODO: Reduce permissions
+
+Outputs:
+  CodeBuildImage:
+    Description: Docker image with Maven libraries
+    Export:
+      Name: ServerlessAppBuildImage
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageRepository}:${ApplicationStackName}"
