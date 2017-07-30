@@ -24,7 +24,7 @@ CODE_BUILD_IMAGE=$(aws cloudformation list-exports \
 aws cloudformation update-stack \
   --stack-name "${APPLICATION_STACK_NAME}-build" \
   --capabilities CAPABILITY_IAM  \
-  --template-body file://infrastructure/build-cfn.yml \
+  --template-body file://infrastructure/app-build-cfn.yml \
   --parameters ParameterKey=GitHubToken,ParameterValue=${1} \
                ParameterKey=GitHubUser,ParameterValue=symphoniacloud \
                ParameterKey=GitHubRepository,ParameterValue=faster-continuous-deployment \
