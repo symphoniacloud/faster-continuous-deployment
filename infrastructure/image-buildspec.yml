@@ -7,7 +7,7 @@ version: 0.2
 phases:
   build:
     commands:
-      - docker build -t ${ECR_IMAGE_TAG} .
+      - docker build -f infrastructure/Dockerfile -t ${ECR_IMAGE_TAG} .
   post_build:
     commands:
       - eval $(aws ecr get-login --registry-ids ${ECR_ACCOUNT_ID}) && docker push ${ECR_IMAGE_TAG}
