@@ -1,5 +1,7 @@
 # Faster Continuous Deployment
 
+For an article about the concepts in this repository, please see https://read.acloud.guru/3-pro-tips-to-speed-up-your-java-based-aws-lambda-continuous-deployment-builds-72310fe18274
+
 ## Getting started
 
 1. Create a GitHub OAuth token: (https://github.com/settings/tokens)
